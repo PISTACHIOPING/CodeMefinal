@@ -1,0 +1,129 @@
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  timestamp: string;
+  createdAt: string; 
+  isTyping?: boolean;
+  sessionId?: string; 
+}
+
+// --- New Cosmos DB Schema Types (CodeMeCos Container) ---
+
+// Base Entity
+export interface BaseEntity {
+  id: string;
+  entityType: 'qa_log' | 'document';
+  userId: string; // Partition Key
+  createdAt: string;
+}
+
+// 1. QA Log (Chat History & Failures)
+export interface QALog extends BaseEntity {
+  entityType: 'qa_log';
+  botId: string;
+  question: string;
+  normalizedQuestion?: string;
+  mainKeyword?: string;
+  answer: string; 
+  isFailed: boolean;
+  model?: string;
+  sessionId?: string;
+  role?: string; 
+}
+
+// 2. Document (Uploaded Files)
+export interface DocumentEntity extends BaseEntity {
+  entityType: 'document';
+  title: string;
+  originalFileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: 'uploaded' | 'processing' | 'processed' | 'failed';
+}
+
+export type DocumentStatus = 'uploaded' | 'processing' | 'processed' | 'failed';
+
+export interface Document {
+  id: string;
+  user_id: string;
+  title: string;
+  original_file_name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  blob_path: string;
+  source: string;
+  group_id: string | null;
+  status: DocumentStatus;
+  chunk_count: number;
+  last_indexed_at: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// 3. Dashboard Data Transfer Objects (DTO)
+export interface DashboardStats {
+    totalChats: number;
+    dailyStats: { day: string; messageCount: number }[];
+    topKeywords: { keyword: string; count: number }[];
+    recentChats: QALog[];
+    failures: { questionKey: string; failCount: number }[];
+    documents: DocumentEntity[];
+}
+
+export interface User {
+  id?: string;
+  email: string;
+  name: string | null;
+  provider?: string;
+  created_at?: string;
+  picture?: string;
+}
+
+export interface FileItem {
+  id: string;
+  name: string;
+  size: string;
+  date: string;
+  type: string;
+  uploadStatus: 'uploading' | 'done' | 'error';
+  uploadProgress?: number;
+}
+
+export interface Contact {
+  id: string;
+  date: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  company: string;
+  jobTitle: string;
+  website: string;
+  phone: string;
+  industry: string;
+}
+
+export enum PageRoute {
+  HOME = '/',
+  CHAT = '/chat',
+  DASHBOARD = '/dashboard',
+  UPLOAD = '/upload',
+  PRICING = '/pricing',
+  SETTINGS = '/settings'
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: any) => void;
+          prompt: (notification?: any) => void;
+          renderButton: (parent: HTMLElement, options: any) => void;
+        };
+      };
+    };
+  }
+}

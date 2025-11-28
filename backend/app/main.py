@@ -1,11 +1,22 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import settings
 from app.api.v1 import routes_health, routes_auth, routes_documents, routes_links, routes_chat
-from app.api.v1 import search_vector  # 파일 위치에 맞게 수정
 from app.api.v1 import chat_rag, search_vector
 
 
 app = FastAPI(title="CODEME Backend", version="0.1.0")
+
+# CORS 설정 (개발용으로 널널하게 허용)
+origins = settings.backend_cors_origins or ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # v1 라우터 등록
 app.include_router(routes_health.router, prefix="/api/v1")
