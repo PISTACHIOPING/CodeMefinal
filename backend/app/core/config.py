@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     azure_openai_endpoint: Optional[str] = None
     azure_openai_api_key: Optional[str] = None
     azure_openai_embed_deployment: Optional[str] = None
+    azure_openai_chat_deployment: Optional[str] = None
+    azure_openai_api_version: str = "2024-02-15-preview"
 
     # Azure AI Search
     azure_search_endpoint: Optional[str] = None
