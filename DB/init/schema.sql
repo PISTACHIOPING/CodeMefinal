@@ -74,6 +74,8 @@ CREATE TABLE links (
     title            VARCHAR(255),
     is_active        BOOLEAN NOT NULL DEFAULT TRUE,
     expires_at       TIMESTAMPTZ,
+    visibility       VARCHAR(20) NOT NULL DEFAULT 'public', -- 'public' | 'private'
+    password_hash    TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_accessed_at TIMESTAMPTZ,
     access_count     INTEGER NOT NULL DEFAULT 0

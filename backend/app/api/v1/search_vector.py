@@ -74,8 +74,9 @@ async def embed_query(text: str) -> List[float]:
 async def vector_search(
     query_vector: List[float],
     user_id: UUID,
-    group_id: Optional[UUID],
-    top_k: int,
+    group_id: Optional[UUID] = None,
+    document_id: Optional[UUID] = None,
+    top_k: int = 5,
 ) -> VectorSearchResponse:
     """Run vector search on Azure AI Search scoped to user (and optional group)."""
     search_url = (
@@ -86,6 +87,8 @@ async def vector_search(
     filters = [f"user_id eq '{user_id}'"]
     if group_id is not None:
         filters.append(f"group_id eq '{group_id}'")
+    if document_id is not None:
+        filters.append(f"document_id eq '{document_id}'")
     filter_expr = " and ".join(filters)
 
     body = {
@@ -151,6 +154,7 @@ async def search_with_vector(
         query_vector=query_vec,
         user_id=current_user.id,
         group_id=payload.group_id,
+        document_id=None,
         top_k=payload.top_k,
     )
     result.query = payload.query

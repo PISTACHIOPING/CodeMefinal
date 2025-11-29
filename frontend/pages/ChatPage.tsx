@@ -2,8 +2,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Icons } from '../components/Icons';
 import { ChatMessage } from '../types';
-import { generateChatResponse } from '../services/geminiService';
 import { dbService } from '../services/dbService';
+import { chatService } from '../services/chatService';
+import { apiClient } from '../services/api';
 import { Cloud, CloudOff } from 'lucide-react';
 
 const STORAGE_KEY = 'codeme_chat_history';
@@ -213,7 +214,17 @@ const ChatPage: React.FC = () => {
     }));
 
     try {
-        const replyText = await generateChatResponse(history, userMsg.text);
+        // 백엔드 RAG 챗봇 호출 (내 문서 기반)
+        if (!apiClient.token) {
+            throw new Error('JWT 토큰이 없습니다. 로그인 후 다시 시도하세요.');
+        }
+
+        const ragReply = await chatService.chatWithRag({
+            question: userMsg.text,
+            top_k: 5,
+        });
+
+        const replyText = ragReply.answer || "죄송합니다. 응답을 생성하지 못했습니다.";
         const replyNow = new Date();
         const botMsg: ChatMessage = {
             id: (Date.now() + 1).toString(),

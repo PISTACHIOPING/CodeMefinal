@@ -192,17 +192,28 @@ async def trigger_index_document(
     db.refresh(doc)
 
     if settings.n8n_index_webhook_url:
+        # n8n에서 전체 문서 정보를 사용할 수 있도록 직렬화한 payload 전달
+        doc_out = DocumentRead.model_validate(doc)
+        payload = doc_out.model_dump(mode="json")
+        payload.setdefault("document_id", str(doc.id))
 
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.post(settings.n8n_index_webhook_url, json=payload)
                 resp.raise_for_status()
         except Exception as exc:
+            # n8n 응답/예외를 최대한 남겨서 원인 파악을 돕는다.
+            resp_text = None
+            if isinstance(exc, httpx.HTTPStatusError):
+                resp_text = exc.response.text
             doc.status = DocumentStatus.FAILED
-            doc.error_message = f"n8n trigger failed: {exc}"
+            doc.error_message = f"n8n trigger failed: {exc} {resp_text or ''}".strip()
             db.commit()
             db.refresh(doc)
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to trigger indexing")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to trigger indexing",
+            )
     else:
         doc.status = DocumentStatus.PROCESSED
         doc.last_indexed_at = datetime.utcnow()

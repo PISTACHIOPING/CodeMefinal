@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     Integer,
     ForeignKey,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
@@ -22,6 +23,8 @@ class Link(Base):
     title = Column(String(255), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
+    visibility = Column(String(20), nullable=False, server_default="public")
+    password_hash = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_accessed_at = Column(DateTime(timezone=True), nullable=True)
