@@ -15,6 +15,15 @@ const clearCookie = (name: string) => {
   document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
 };
 
+export interface LinkChatRequest {
+  link_id: string;
+  question: string;
+}
+
+export interface LinkChatResponse {
+  answer: string;
+}
+
 export const apiClient = {
   get token() {
     const local = localStorage.getItem(TOKEN_KEY);
@@ -50,3 +59,22 @@ export const apiClient = {
 };
 
 export const getApiBase = () => BASE_URL;
+
+// 공개 링크 챗봇 호출 (Authorization 없이)
+export async function askLinkChat(payload: LinkChatRequest): Promise<LinkChatResponse> {
+  const resp = await fetch(`${BASE_URL}/api/v1/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Link chat failed: ${resp.status} ${text}`);
+  }
+
+  return resp.json() as Promise<LinkChatResponse>;
+}

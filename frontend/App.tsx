@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage';
 import UploadPage from './pages/UploadPage';
 import PricingPage from './pages/PricingPage';
 import SettingsPage from './pages/SettingsPage';
+import PublicChatPage from './pages/PublicChatPage';
 import LoginModal from './components/LoginModal';
 import ContactModal from './components/ContactModal';
 import { PageRoute } from './types';
@@ -55,6 +56,7 @@ const App: React.FC = () => {
                 <Route path={PageRoute.DASHBOARD} element={<DashboardPage />} />
                 <Route path={PageRoute.UPLOAD} element={<UploadPage />} />
                 <Route path={PageRoute.SETTINGS} element={<SettingsPage />} />
+                <Route path="/c/:linkId" element={<PublicChatPage />} />
                 <Route 
                   path={PageRoute.PRICING} 
                   element={

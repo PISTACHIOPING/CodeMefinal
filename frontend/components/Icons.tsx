@@ -27,6 +27,8 @@ import {
   Filter,
   Calendar,
   Copy,
+  Loader2,
+  Home,
   Info
 } from 'lucide-react';
 
@@ -59,5 +61,7 @@ export const Icons = {
   Filter,
   Calendar,
   Copy,
+  Loader2,
+  Home,
   Info
 };
