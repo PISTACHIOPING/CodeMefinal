@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_db, get_current_user
+from app.core.security import hash_password
 from app.models.document import Document
 from app.models.link import Link
 from app.models.user import User
@@ -32,12 +33,20 @@ def create_link(
         )
 
     link_id = generate_link_id()
+
+    password_hash: str | None = None
+    if payload.password:
+        password_hash = hash_password(payload.password)
+    # TODO: 비밀번호 검증 로직은 공개 챗봇 엔드포인트에서 추가한다.
+
     link = Link(
         id=link_id,
         user_id=current_user.id,
         document_id=doc.id,
         title=payload.title,
         expires_at=payload.expires_at,
+        visibility=payload.visibility or "public",
+        password_hash=password_hash,
     )
     db.add(link)
     db.commit()

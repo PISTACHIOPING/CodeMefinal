@@ -1,9 +1,10 @@
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, EmailStr
 
 
 class UserRead(BaseModel):
-    id: str
+    id: UUID
     email: EmailStr
     name: str | None = None
     provider: str

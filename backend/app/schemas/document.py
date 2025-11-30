@@ -17,6 +17,7 @@ class DocumentRead(BaseModel):
     size_bytes: int | None = None
     blob_path: str
     source: str
+    group_id: UUID | None = None
     status: DocumentStatus
     chunk_count: int
     last_indexed_at: datetime | None = None

@@ -113,6 +113,7 @@ async def chat_with_rag(
         query_vector=query_vec,
         user_id=current_user.id,
         group_id=payload.group_id,
+        document_id=None,
         top_k=payload.top_k,
     )
 

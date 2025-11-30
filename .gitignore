@@ -10,6 +10,16 @@ __pycache__/
 venv/
 env/
 
+# pyenv 버전 파일
+.python-version
+
+# 테스트/정적 분석 캐시
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
 # IDE / 편집기
 .vscode/
 .idea/
@@ -26,6 +36,9 @@ Thumbs.db
 # ===== 환경변수 / 시크릿 =====
 .env
 .env.*
+*.env.local
+*.env.development
+*.env.production
 
 # ===== 백엔드 빌드/캐시 =====
 backend/.mypy_cache/
@@ -35,5 +48,5 @@ backend/__pycache__/
 # ===== DB (Postgres docker 데이터) =====
 DB/data/
 
-# docker-compose에서 생성되는 기타 파일이 있으면 필요시 추가
-# 예: 볼륨 스냅샷, 임시 백업 등
+# n8n 같은 외부 도구 로컬 데이터(있다면)
+n8n_data/

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     google_auth_base_url: str = "https://accounts.google.com/o/oauth2/v2/auth"
     google_token_url: str = "https://oauth2.googleapis.com/token"
     google_userinfo_url: str = "https://openidconnect.googleapis.com/v1/userinfo"
+    frontend_base_url: Optional[str] = None
 
     # Azure Blob Storage
     azure_storage_connection_string: Optional[str] = None
@@ -43,6 +44,8 @@ class Settings(BaseSettings):
     azure_openai_endpoint: Optional[str] = None
     azure_openai_api_key: Optional[str] = None
     azure_openai_embed_deployment: Optional[str] = None
+    azure_openai_chat_deployment: Optional[str] = None
+    azure_openai_api_version: str = "2024-02-15-preview"
 
     # Azure AI Search
     azure_search_endpoint: Optional[str] = None

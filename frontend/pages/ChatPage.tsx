@@ -1,0 +1,548 @@
+
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Icons } from '../components/Icons';
+import { ChatMessage } from '../types';
+import { dbService } from '../services/dbService';
+import { chatService } from '../services/chatService';
+import { apiClient } from '../services/api';
+import { Cloud, CloudOff } from 'lucide-react';
+
+const STORAGE_KEY = 'codeme_chat_history';
+const SESSION_KEY = 'codeme_current_session_id';
+
+// Separate component to prevent re-rendering issues
+interface SatisfactionSurveyProps {
+    onDismiss: () => void;
+    onSubmit: () => void;
+}
+
+const SatisfactionSurvey: React.FC<SatisfactionSurveyProps> = ({ onDismiss, onSubmit }) => {
+      const [rating, setRating] = useState<number | null>(null);
+      const [submitted, setSubmitted] = useState(false);
+      
+      const handleSubmitSurvey = () => {
+          if (!rating) return;
+          setSubmitted(true);
+          // Allow animation to play before notifying parent
+          setTimeout(() => onSubmit(), 2000);
+      };
+
+      if (submitted) {
+          return (
+              <div className="mx-auto my-6 max-w-sm p-4 bg-green-50 border border-green-200 rounded-xl text-center animate-in zoom-in duration-300">
+                  <div className="flex justify-center mb-2">
+                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+                          <Icons.Check size={20} />
+                      </div>
+                  </div>
+                  <h4 className="font-bold text-green-800">소중한 의견 감사합니다!</h4>
+                  <p className="text-xs text-green-600">더 나은 서비스로 보답하겠습니다.</p>
+              </div>
+          );
+      }
+
+      return (
+          <div className="mx-auto my-6 max-w-sm bg-white border border-gray-200 shadow-lg rounded-xl overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
+             <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-3 flex justify-between items-center text-white">
+                 <div className="flex items-center gap-2">
+                     <Icons.Zap size={16} />
+                     <span className="font-bold text-sm">이번 대화는 어떠셨나요?</span>
+                 </div>
+                 <button onClick={onDismiss} className="text-white/70 hover:text-white">
+                     <Icons.Close size={16} />
+                 </button>
+             </div>
+             <div className="p-5">
+                 <p className="text-sm text-gray-600 text-center mb-4">별점을 선택하여 피드백을 남겨주세요</p>
+                 <div className="flex justify-center gap-2 mb-6">
+                     {[1, 2, 3, 4, 5].map((r) => (
+                         <button 
+                            key={r}
+                            onClick={() => setRating(r)}
+                            className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold transition-all ${
+                                rating === r 
+                                ? 'bg-purple-600 text-white shadow-lg scale-110' 
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                         >
+                             {r}
+                         </button>
+                     ))}
+                 </div>
+                 
+                 {rating && (rating < 4) && (
+                     <div className="mb-4 animate-in fade-in duration-200">
+                         <p className="text-xs text-gray-500 mb-2 font-semibold">어떤 점이 아쉬우셨나요?</p>
+                         <div className="flex flex-wrap gap-2">
+                             {['이해 못함', '답변 불만족', '느린 응답', '기타'].map((reason) => (
+                                 <button key={reason} className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600 hover:border-purple-300 hover:text-purple-600">
+                                     {reason}
+                                 </button>
+                             ))}
+                         </div>
+                     </div>
+                 )}
+
+                 <button 
+                    onClick={handleSubmitSurvey}
+                    disabled={!rating}
+                    className="w-full py-2.5 bg-gray-900 text-white text-sm font-bold rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                 >
+                     제출하기
+                 </button>
+             </div>
+          </div>
+      );
+};
+
+const ChatPage: React.FC = () => {
+  // --- State Management ---
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  
+  // Session State
+  const [sessionId, setSessionId] = useState<string>('');
+
+  // Search & Filter State
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  // Survey State
+  const [showSurvey, setShowSurvey] = useState(false);
+  const [surveySubmitted, setSurveySubmitted] = useState(false);
+  
+  // Connection state
+  const [isConnected, setIsConnected] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // --- Effects ---
+
+  // Load from LocalStorage on Mount
+  useEffect(() => {
+    // Check connection
+    dbService.initDB().then(status => setIsConnected(status === 'connected'));
+
+    // Initialize Session ID
+    let currentSession = localStorage.getItem(SESSION_KEY);
+    if (!currentSession) {
+        currentSession = Date.now().toString();
+        localStorage.setItem(SESSION_KEY, currentSession);
+    }
+    setSessionId(currentSession);
+
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+        try {
+            setMessages(JSON.parse(saved));
+        } catch (e) {
+            console.error("Failed to load chat history", e);
+        }
+    } else {
+        // Default Welcome Message
+        setMessages([{ 
+            id: 'init', 
+            role: 'model', 
+            text: '안녕하세요! 👋\n저는 Hey Me입니다. 당신의 개인 AI 에이전트입니다. 무엇을 도와드릴까요?', 
+            timestamp: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            createdAt: new Date().toISOString(),
+            sessionId: currentSession
+        }]);
+    }
+  }, []);
+
+  // Save to LocalStorage on Change (Backup)
+  useEffect(() => {
+    if (messages.length > 0) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    }
+  }, [messages]);
+
+  // Intermittent Survey Trigger
+  useEffect(() => {
+      // Logic: Trigger survey if the total count of messages implies a decent conversation length (e.g. 9, 17, 25...).
+      if (messages.length > 2 && (messages.length - 1) % 8 === 0 && !showSurvey && !surveySubmitted) {
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg.role === 'model') {
+              setShowSurvey(true);
+          }
+      }
+  }, [messages, showSurvey, surveySubmitted]);
+
+  // Auto-scroll
+  const scrollToBottom = () => {
+    if (!searchTerm && !startDate && !endDate) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping, showSurvey]);
+
+
+  // --- Handlers ---
+
+  const handleSend = async () => {
+    if (isTyping || !input.trim()) return;
+
+    // Dismiss survey if user continues chatting
+    if (showSurvey) setShowSurvey(false);
+
+    const now = new Date();
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      text: input,
+      timestamp: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: now.toISOString(),
+      sessionId: sessionId // Attach Session ID
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setIsTyping(true);
+    
+    // Prepare history for API (Limit context to last 20 messages to save tokens)
+    const history = messages.slice(-20).map(m => ({
+        role: m.role,
+        parts: [{ text: m.text }]
+    }));
+
+    try {
+        // 백엔드 RAG 챗봇 호출 (내 문서 기반)
+        if (!apiClient.token) {
+            throw new Error('JWT 토큰이 없습니다. 로그인 후 다시 시도하세요.');
+        }
+
+        const ragReply = await chatService.chatWithRag({
+            question: userMsg.text,
+            top_k: 5,
+        });
+
+        const replyText = ragReply.answer || "죄송합니다. 응답을 생성하지 못했습니다.";
+        const replyNow = new Date();
+        const botMsg: ChatMessage = {
+            id: (Date.now() + 1).toString(),
+            role: 'model',
+            text: replyText || "죄송합니다. 응답을 생성하지 못했습니다.",
+            timestamp: replyNow.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            createdAt: replyNow.toISOString(),
+            sessionId: sessionId
+        };
+        setMessages(prev => [...prev, botMsg]);
+        
+        // --- NEW: Save Q&A Pair to DB (One entry per turn) ---
+        await dbService.saveQAPair({
+            question: userMsg.text,
+            answer: botMsg.text,
+            sessionId: sessionId,
+            isFailed: false
+        });
+
+    } catch (e: any) {
+        console.error(e);
+        setIsTyping(false);
+        const errorMsg: ChatMessage = {
+            id: Date.now().toString(),
+            role: 'model',
+            text: "⚠️ 오류가 발생했습니다. 네트워크 연결을 확인하거나 나중에 다시 시도해주세요.",
+            timestamp: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            createdAt: now.toISOString(),
+            sessionId: sessionId
+        };
+        setMessages(prev => [...prev, errorMsg]);
+
+        // Save Failed Q&A Pair
+        await dbService.saveQAPair({
+            question: userMsg.text,
+            answer: "Error response",
+            sessionId: sessionId,
+            isFailed: true
+        });
+
+    } finally {
+        setIsTyping(false);
+    }
+  };
+
+  const clearHistory = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (window.confirm("모든 대화 내용을 삭제하시겠습니까? 세션도 초기화됩니다.")) {
+          // Generate new Session ID
+          const newSessionId = Date.now().toString();
+          setSessionId(newSessionId);
+          localStorage.setItem(SESSION_KEY, newSessionId);
+
+          setMessages([{ 
+            id: Date.now().toString(), 
+            role: 'model', 
+            text: '대화 기록이 초기화되었습니다. 새로운 대화를 시작해보세요!', 
+            timestamp: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            createdAt: new Date().toISOString(),
+            sessionId: newSessionId
+        }]);
+          localStorage.removeItem(STORAGE_KEY);
+          setSurveySubmitted(false);
+          setShowSurvey(false);
+      }
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Prevent double submission during Korean IME composition
+    if (e.nativeEvent.isComposing) return;
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  // --- Filtering Logic ---
+  
+  const toggleSearch = () => {
+    if (isSearchOpen) setSearchTerm('');
+    setIsSearchOpen(!isSearchOpen);
+    if (isFilterOpen) setIsFilterOpen(false);
+  };
+
+  const toggleFilter = () => {
+    setIsFilterOpen(!isFilterOpen);
+    if (isSearchOpen) setIsSearchOpen(false);
+  };
+
+  const highlightText = (text: string, highlight: string) => {
+    if (!highlight.trim()) return text;
+    const regex = new RegExp(`(${highlight})`, 'gi');
+    return text.split(regex).map((part, i) => 
+        regex.test(part) ? <span key={i} className="bg-yellow-500/50 text-white font-bold px-0.5 rounded-sm">{part}</span> : part
+    );
+  };
+
+  const filteredMessages = useMemo(() => {
+    return messages.filter(msg => {
+      const matchesSearch = msg.text.toLowerCase().includes(searchTerm.toLowerCase());
+      let matchesDate = true;
+      if (startDate || endDate) {
+        const msgDate = new Date(msg.createdAt);
+        msgDate.setHours(0, 0, 0, 0);
+        if (startDate && msgDate < new Date(startDate)) matchesDate = false;
+        if (endDate && msgDate > new Date(endDate)) matchesDate = false;
+      }
+      return matchesSearch && matchesDate;
+    });
+  }, [messages, searchTerm, startDate, endDate]);
+
+
+  // --- Render ---
+
+  return (
+    <div className="min-h-[calc(100vh-64px)] bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-4xl bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col h-[800px] border border-gray-200 relative">
+        
+        {/* Chat Header */}
+        <div className="bg-[#1a0b2e] flex flex-col shrink-0 transition-all duration-300">
+           <div className="p-6 pb-4 flex items-center justify-between h-20">
+                {isSearchOpen ? (
+                   <div className="w-full flex items-center gap-3 animate-in fade-in slide-in-from-right-4 duration-200">
+                      <div className="flex-1 relative">
+                          <Icons.Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                          <input 
+                            autoFocus
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder="대화 내용 검색..."
+                            className="w-full bg-white/10 text-white placeholder-gray-400 rounded-xl pl-10 pr-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-purple-400 border border-white/10"
+                          />
+                      </div>
+                      <button 
+                        onClick={toggleSearch}
+                        className="p-2 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                      >
+                          <Icons.Close size={20} />
+                      </button>
+                   </div>
+                ) : (
+                   <>
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center border-2 border-white/20">
+                                <div className="w-6 h-6 bg-white/90 rounded-full animate-pulse" />
+                            </div>
+                            <div>
+                                <h2 className="text-white font-bold text-lg">Hey Me</h2>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-purple-300">👋 나를 부르면 대답하는 AI</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={clearHistory}
+                                className="p-2 text-gray-400 hover:text-red-400 hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+                                title="대화 초기화"
+                            >
+                                <Icons.Trash size={20} />
+                            </button>
+                            <div className="w-px h-6 bg-white/10 mx-1"></div>
+                            <button 
+                                onClick={toggleFilter}
+                                className={`p-2 rounded-full transition-colors ${isFilterOpen ? 'text-white bg-purple-600' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
+                            >
+                                <Icons.Filter size={20} />
+                            </button>
+                            <button 
+                                onClick={toggleSearch}
+                                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+                            >
+                                <Icons.Search size={20} />
+                            </button>
+                        </div>
+                   </>
+                )}
+           </div>
+
+           {/* Filter Bar */}
+           {(isFilterOpen || startDate || endDate) && !isSearchOpen && (
+               <div className={`px-6 pb-4 flex items-center gap-3 animate-in slide-in-from-top-2 duration-200 ${!isFilterOpen ? 'hidden' : ''}`}>
+                    <div className="flex items-center gap-2 bg-white/10 p-1.5 rounded-lg border border-white/5 flex-1">
+                        <Icons.Calendar size={14} className="text-purple-300 ml-2" />
+                        <input 
+                            type="date" 
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="bg-transparent text-white text-sm focus:outline-none p-1 [&::-webkit-calendar-picker-indicator]:invert"
+                        />
+                        <span className="text-gray-400">-</span>
+                        <input 
+                            type="date" 
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="bg-transparent text-white text-sm focus:outline-none p-1 [&::-webkit-calendar-picker-indicator]:invert"
+                        />
+                    </div>
+                    <button onClick={() => { setStartDate(''); setEndDate(''); }} className="text-xs text-purple-300 hover:text-white underline">초기화</button>
+               </div>
+           )}
+        </div>
+
+        {/* Messages Area */}
+        <div className="flex-1 bg-[#1e1b2e] p-6 overflow-y-auto space-y-6 scrollbar-hide">
+            {filteredMessages.length === 0 ? (
+                 <div className="h-full flex flex-col items-center justify-center text-gray-500 space-y-2">
+                    <Icons.Chat size={40} className="opacity-20" />
+                    <p className="text-sm">대화 내용이 없습니다.</p>
+                 </div>
+            ) : (
+                <>
+                {filteredMessages.map((msg) => (
+                    <div key={msg.id} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`flex max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} gap-3`}>
+                            <div className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center ${msg.role === 'user' ? 'bg-gray-600' : 'bg-purple-100'}`}>
+                            {msg.role === 'user' ? (
+                                <div className="w-full h-full rounded-full bg-gray-500" /> 
+                            ) : (
+                                <div className="w-6 h-6 bg-gradient-to-tr from-purple-500 to-pink-500 rounded-full" />
+                            )}
+                            </div>
+                            
+                            <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                                <div className={`p-4 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-lg ${
+                                    msg.role === 'user' 
+                                    ? 'bg-gray-700 text-white rounded-tr-sm' 
+                                    : 'bg-[#2d2b42] text-gray-100 rounded-tl-sm border border-gray-700'
+                                }`}>
+                                    {highlightText(msg.text, searchTerm)}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1 px-1">
+                                    <span className="text-[10px] text-gray-500">{msg.timestamp}</span>
+                                    {isConnected && (
+                                        <span title="Saved to Azure">
+                                            <Cloud size={10} className="text-purple-400" />
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+
+                {/* Inline Satisfaction Survey */}
+                {showSurvey && (
+                    <SatisfactionSurvey 
+                        onDismiss={() => setShowSurvey(false)} 
+                        onSubmit={() => setShowSurvey(false)} 
+                    />
+                )}
+                </>
+            )}
+            
+            {isTyping && (
+                 <div className="flex w-full justify-start animate-pulse">
+                     <div className="flex gap-3">
+                         <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                             <div className="w-6 h-6 bg-gradient-to-tr from-purple-500 to-pink-500 rounded-full" />
+                         </div>
+                         <div className="bg-[#2d2b42] p-4 rounded-2xl rounded-tl-sm border border-gray-700 flex items-center gap-1">
+                             <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-0"></span>
+                             <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-150"></span>
+                             <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-300"></span>
+                         </div>
+                     </div>
+                 </div>
+            )}
+            <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Area */}
+        <div className="bg-[#1e1b2e] p-4 border-t border-gray-800">
+           <div className="relative">
+               <input 
+                 type="text" 
+                 value={input}
+                 onChange={(e) => setInput(e.target.value)}
+                 onKeyDown={handleKeyPress}
+                 placeholder="Hey, Me! 무엇이든 물어보세요..." 
+                 className="w-full bg-[#2d2b42] text-white placeholder-gray-500 rounded-xl pl-6 pr-14 py-4 focus:outline-none focus:ring-1 focus:ring-purple-500 border border-gray-700"
+               />
+               <button 
+                 onClick={handleSend}
+                 disabled={!input.trim() || isTyping}
+                 className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${
+                     input.trim() && !isTyping ? 'bg-purple-600 text-white hover:bg-purple-500' : 'bg-gray-700 text-gray-500'
+                 }`}
+               >
+                   <Icons.Send size={18} />
+               </button>
+           </div>
+           <div className="flex justify-between items-center mt-3 px-2">
+               <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                   {isConnected ? (
+                       <>
+                           <Cloud size={10} className="text-green-500" />
+                           <span className="text-green-500/80">Cloud Sync Active</span>
+                       </>
+                   ) : (
+                       <>
+                           <CloudOff size={10} className="text-gray-600" />
+                           <span>Local Mode</span>
+                       </>
+                   )}
+               </div>
+               <p className="text-[10px] text-gray-500">
+                   Powered by <span className="text-white font-bold">Code:Me</span> Client-Side AI
+               </p>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ChatPage;
