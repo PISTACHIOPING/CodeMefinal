@@ -63,6 +63,15 @@ export interface Document {
   updated_at: string;
 }
 
+export interface DocumentGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // 3. Dashboard Data Transfer Objects (DTO)
 export interface DashboardStats {
     totalChats: number;

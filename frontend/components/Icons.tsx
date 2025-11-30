@@ -29,7 +29,9 @@ import {
   Copy,
   Loader2,
   Home,
-  Info
+  Info,
+  Edit3,
+  FolderPlus
 } from 'lucide-react';
 
 export const Icons = {
@@ -57,11 +59,14 @@ export const Icons = {
   TrendingUp,
   Alert: AlertTriangle,
   Folder: FolderOpen,
+  FolderOpen,
   LogOut: LogOut,
   Filter,
   Calendar,
   Copy,
   Loader2,
   Home,
-  Info
+  Info,
+  Edit: Edit3,
+  FolderPlus
 };

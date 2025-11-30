@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icons } from '../components/Icons';
-import type { Document, DocumentStatus } from '../types';
+import type { Document, DocumentGroup, DocumentStatus } from '../types';
 import { documentService } from '../services/documentService';
 import { apiClient } from '../services/api';
 
@@ -13,6 +13,9 @@ const statusBadge: Record<DocumentStatus, { text: string; color: string }> = {
 
 const UploadPage: React.FC = () => {
   const [docs, setDocs] = useState<Document[]>([]);
+  const [groups, setGroups] = useState<DocumentGroup[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null); // null = 루트
+  const [draggingDocId, setDraggingDocId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -31,8 +34,12 @@ const UploadPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await documentService.list();
-      setDocs(data);
+      const [docsRes, groupsRes] = await Promise.all([
+        documentService.list(),
+        documentService.listGroups(),
+      ]);
+      setDocs(docsRes);
+      setGroups(groupsRes);
     } catch (e: any) {
       setError(e.message || '문서 목록을 불러오지 못했습니다.');
     } finally {
@@ -66,7 +73,7 @@ const UploadPage: React.FC = () => {
     setError(null);
 
     try {
-      await documentService.upload({ file, title: file.name });
+      await documentService.upload({ file, title: file.name, group_id: selectedGroupId || undefined });
       await fetchDocs();
     } catch (err: any) {
       setError(err.message || '업로드 실패');
@@ -88,6 +95,55 @@ const UploadPage: React.FC = () => {
     }
   };
 
+  const handleCreateGroup = async () => {
+    if (!ensureToken()) return;
+    const name = window.prompt('새 폴더 이름을 입력하세요.');
+    if (!name) return;
+    try {
+      const newGroup = await documentService.createGroup(name);
+      setGroups(prev => [...prev, newGroup]);
+    } catch (err: any) {
+      setError(err.message || '폴더 생성 실패');
+    }
+  };
+
+  const handleRenameGroup = async (group: DocumentGroup) => {
+    if (!ensureToken()) return;
+    const newName = window.prompt('폴더 이름을 변경하세요.', group.name);
+    if (!newName) return;
+    try {
+      const updated = await documentService.renameGroup(group.id, newName);
+      setGroups(prev => prev.map(g => (g.id === group.id ? updated : g)));
+    } catch (err: any) {
+      setError(err.message || '폴더 이름 변경 실패');
+    }
+  };
+
+  const handleDeleteGroup = async (group: DocumentGroup) => {
+    if (!ensureToken()) return;
+    if (!window.confirm('이 폴더와 폴더 안의 문서를 모두 삭제할까요?')) return;
+    try {
+      await documentService.deleteGroup(group.id);
+      setGroups(prev => prev.filter(g => g.id !== group.id));
+      setDocs(prev => prev.filter(d => d.group_id !== group.id));
+      if (selectedGroupId === group.id) setSelectedGroupId(null);
+    } catch (err: any) {
+      setError(err.message || '폴더 삭제 실패');
+    }
+  };
+
+  const handleMoveDoc = async (docId: string, groupId: string | null) => {
+    if (!ensureToken()) return;
+    try {
+      const updated = await documentService.moveDocumentToGroup(docId, groupId);
+      setDocs(prev => prev.map(d => (d.id === updated.id ? updated : d)));
+    } catch (err: any) {
+      setError(err.message || '이동 실패');
+    } finally {
+      setDraggingDocId(null);
+    }
+  };
+
   const handleIndex = async (id: string) => {
     if (!ensureToken()) return;
 
@@ -103,6 +159,8 @@ const UploadPage: React.FC = () => {
       setIndexingId(null);
     }
   };
+
+  const visibleDocs = selectedGroupId ? docs.filter(d => d.group_id === selectedGroupId) : docs;
 
   const processedCount = docs.filter(d => d.status === 'processed').length;
   const progressPercent =
@@ -175,6 +233,78 @@ const UploadPage: React.FC = () => {
                   />
                 </div>
               </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCreateGroup}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs bg-gray-100 hover:bg-gray-200 text-gray-700"
+                >
+                  <Icons.FolderPlus size={14} />
+                  폴더 추가
+                </button>
+              </div>
+            </div>
+
+            <div className="px-6 pt-4 flex items-center gap-2 overflow-x-auto text-sm">
+              <button
+                onClick={() => setSelectedGroupId(null)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => {
+                  e.preventDefault();
+                  if (draggingDocId) {
+                    handleMoveDoc(draggingDocId, null);
+                  }
+                }}
+                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full border text-xs ${
+                  selectedGroupId === null
+                    ? 'bg-purple-50 border-purple-300 text-purple-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-600'
+                }`}
+              >
+                <Icons.FolderOpen size={14} />
+                전체
+              </button>
+
+              {groups.map(group => (
+                <div
+                  key={group.id}
+                  onDoubleClick={() => setSelectedGroupId(group.id)}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => {
+                    e.preventDefault();
+                    if (draggingDocId) {
+                      handleMoveDoc(draggingDocId, group.id);
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1 px-3 py-1 rounded-full border text-xs cursor-pointer ${
+                    selectedGroupId === group.id
+                      ? 'bg-purple-50 border-purple-300 text-purple-700'
+                      : 'bg-gray-50 border-gray-200 text-gray-600'
+                  }`}
+                >
+                  <Icons.Folder size={14} />
+                  <span>{group.name}</span>
+                  <button
+                    type="button"
+                    className="ml-1 text-gray-400 hover:text-gray-700"
+                    onClick={e => {
+                      e.stopPropagation();
+                      handleRenameGroup(group);
+                    }}
+                  >
+                    <Icons.Edit size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ml-1 text-gray-400 hover:text-red-600"
+                    onClick={e => {
+                      e.stopPropagation();
+                      handleDeleteGroup(group);
+                    }}
+                  >
+                    <Icons.Trash size={12} />
+                  </button>
+                </div>
+              ))}
             </div>
 
             <div className="overflow-y-auto flex-1 p-2">
@@ -187,7 +317,7 @@ const UploadPage: React.FC = () => {
                   업로드된 문서가 없습니다.
                 </div>
               ) : (
-                docs.map(doc => {
+                visibleDocs.map(doc => {
                   const badge = statusBadge[doc.status];
                   const dateStr = new Date(
                     doc.updated_at || doc.created_at,
@@ -196,6 +326,9 @@ const UploadPage: React.FC = () => {
                   return (
                     <div
                       key={doc.id}
+                      draggable
+                      onDragStart={() => setDraggingDocId(doc.id)}
+                      onDragEnd={() => setDraggingDocId(null)}
                       className="border-b border-gray-50 last:border-0"
                     >
                       <div className="grid grid-cols-12 items-center p-3 hover:bg-gray-50 rounded-lg group transition-colors">

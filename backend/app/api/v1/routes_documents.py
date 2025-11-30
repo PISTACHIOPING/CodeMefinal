@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from datetime import datetime
@@ -9,10 +10,13 @@ from azure.storage.blob import ContainerClient
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from uuid import UUID
+from pydantic import BaseModel
 
 from app.api.v1.deps import get_current_user, get_db
 from app.core.config import settings
 from app.models.document import Document, DocumentStatus
+from app.models.document_group import DocumentGroup
 from app.models.user import User
 from app.schemas.document import DocumentIndexCallback, DocumentRead
 from app.services.blob_storage import (
@@ -23,6 +27,60 @@ from app.services.blob_storage import (
 )
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
+
+
+class DocumentMoveGroup(BaseModel):
+    group_id: UUID | None = None
+
+
+def delete_from_search_index(document: Document) -> None:
+    """Best-effort delete of all chunks belonging to the document from Azure AI Search."""
+    if not settings.azure_search_endpoint or not settings.azure_search_admin_key or not settings.azure_search_index_name:
+        logger.warning("Azure Search config missing, skipping index delete for %s", document.id)
+        return
+
+    search_url = (
+        f"{settings.azure_search_endpoint}/indexes/{settings.azure_search_index_name}"
+        "/docs/search?api-version=2023-11-01"
+    )
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": settings.azure_search_admin_key,
+    }
+    filter_expr = f"document_id eq '{document.id}'"
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(search_url, headers=headers, json={"filter": filter_expr, "select": "id", "top": 1000})
+            resp.raise_for_status()
+            data = resp.json()
+            ids = [doc.get("id") for doc in data.get("value", []) if doc.get("id")]
+            if not ids:
+                return
+            delete_url = (
+                f"{settings.azure_search_endpoint}/indexes/{settings.azure_search_index_name}"
+                "/docs/index?api-version=2023-11-01"
+            )
+            payload = {"value": [{"@search.action": "delete", "id": doc_id} for doc_id in ids]}
+            resp2 = client.post(delete_url, headers=headers, json=payload)
+            resp2.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to delete search documents for %s: %s", document.id, exc)
+
+
+def delete_document_internal(db: Session, current_user: User, document: Document, container: ContainerClient) -> None:
+    """
+    Delete a document: blob, search index, DB row. No HTTPExceptions raised here.
+    """
+    try:
+        delete_blob(container, document.blob_path)
+    except RuntimeError:
+        logger.warning("Failed to delete blob for document %s", document.id)
+
+    delete_from_search_index(document)
+
+    db.delete(document)
+    db.commit()
 
 
 @router.get("/", response_model=List[DocumentRead])
@@ -43,6 +101,7 @@ def list_my_documents(
 async def upload_document(
     file: UploadFile = File(...),
     title: str | None = Form(None),
+    group_id: UUID | None = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     container: ContainerClient = Depends(get_blob_container_client),
@@ -50,6 +109,11 @@ async def upload_document(
     safe_name = Path(file.filename or "upload.bin").name
     doc_id = uuid.uuid4()
     blob_path = f"{current_user.id}/{doc_id}/original/{safe_name}"
+
+    if group_id:
+        group = db.get(DocumentGroup, group_id)
+        if not group or group.user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid group_id")
 
     try:
         file.file.seek(0, os.SEEK_END)
@@ -83,6 +147,7 @@ async def upload_document(
         size_bytes=size_bytes,
         blob_path=blob_path,
         source="upload",
+        group_id=group_id,
         status=DocumentStatus.UPLOADED,
     )
 
@@ -133,14 +198,25 @@ def delete_document(
     if not doc or doc.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    try:
-        delete_blob(container, doc.blob_path)
-    except RuntimeError:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to delete blob")
-
-    db.delete(doc)
-    db.commit()
+    delete_document_internal(db, current_user, doc, container)
     return None
+
+
+@router.patch("/{document_id}/group", response_model=DocumentRead)
+def move_document_group(
+    document_id: UUID,
+    payload: DocumentMoveGroup,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    doc = db.get(Document, document_id)
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    doc.group_id = payload.group_id
+    db.commit()
+    db.refresh(doc)
+    return doc
 
 
 @router.post("/callback/index", response_model=DocumentRead)

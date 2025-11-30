@@ -11,7 +11,7 @@ from sqlalchemy import (
     Integer,
     ForeignKey,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, UUID as PGUUID
 from sqlalchemy.sql import func
 
 from app.core.db import Base
@@ -33,6 +33,11 @@ class Document(Base):
         default=uuid.uuid4,
     )
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    group_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("document_groups.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     title = Column(String(255), nullable=True)
     original_file_name = Column(String(255), nullable=False)
