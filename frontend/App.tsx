@@ -1,10 +1,12 @@
 
 import React, { useState } from 'react';
-import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
 import ChatPage from './pages/ChatPage';
+import AgentPage from './pages/AgentPage';
+import ShareChatPage from './pages/ShareChatPage';
 import DashboardPage from './pages/DashboardPage';
 import UploadPage from './pages/UploadPage';
 import PricingPage from './pages/PricingPage';
@@ -42,7 +44,7 @@ const App: React.FC = () => {
 
   return (
     <AuthProvider>
-      <HashRouter>
+      <BrowserRouter>
         <ScrollToTop />
         <div className="min-h-screen flex flex-col font-sans text-gray-900">
             <Navbar onLoginClick={handleOpenLogin} />
@@ -52,7 +54,8 @@ const App: React.FC = () => {
                   path={PageRoute.HOME} 
                   element={<LandingPage onOpenLogin={handleOpenLogin} onOpenSignup={handleOpenSignup} />} 
                 />
-                <Route path={PageRoute.CHAT} element={<ChatPage />} />
+                <Route path={PageRoute.AGENT} element={<AgentPage />} />
+                <Route path={PageRoute.SHARE_CHAT} element={<ShareChatPage />} />
                 <Route path={PageRoute.DASHBOARD} element={<DashboardPage />} />
                 <Route path={PageRoute.UPLOAD} element={<UploadPage />} />
                 <Route path={PageRoute.SETTINGS} element={<SettingsPage />} />
@@ -75,9 +78,9 @@ const App: React.FC = () => {
               onClose={() => setIsLoginOpen(false)} 
               initialMode={authMode}
             />
-            <ContactModal isOpen={isContactOpen} onClose={() => setIsContactOpen(false)} />
+                <ContactModal isOpen={isContactOpen} onClose={() => setIsContactOpen(false)} />
         </div>
-      </HashRouter>
+      </BrowserRouter>
     </AuthProvider>
   );
 };

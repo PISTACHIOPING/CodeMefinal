@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator
+from datetime import datetime
 
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_user, get_db
 from app.api.v1.search_vector import (
     embed_query,
     vector_search,
@@ -15,9 +17,16 @@ from app.api.v1.search_vector import (
     SearchHit,
 )
 from app.core.config import settings
+from app.core.question_normalizer import normalize_question_semantic, extract_keywords_for_cloud
+from app.models.qa_log import QALog
 from app.models.user import User
+from app.models.document_group import DocumentGroup
+from app.models.qa_keyword import QAKetword
+from sqlalchemy.orm import Session
+import re
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 class ChatRequest(BaseModel):
@@ -40,7 +49,47 @@ class ChatResponse(BaseModel):
     sources: List[ChatSource]
 
 
-async def call_chat_model(question: str, hits: List[SearchHit]) -> str:
+class ChatLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
+
+    id: UUID
+    question: str
+    answer: str
+    created_at: datetime | None = None
+
+    @field_validator("id", mode="before")
+    def stringify_uuid(cls, v):
+        return str(v)
+
+
+# Ensure Pydantic builds type adapters before FastAPI uses them
+ChatLogRead.model_rebuild()
+
+
+def normalize_question(text: str) -> str:
+    s = text.lower().strip()
+    s = re.sub(r"[^\w\s가-힣]", "", s)
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _looks_no_answer(answer: str) -> bool:
+    """Heuristic to flag model replies that indicate no answer."""
+    low = answer.lower()
+    keywords = [
+        "정보가 없습니다",
+        "알 수 없습니다",
+        "잘 모르",
+        "관련 정보가 없",
+        "답변을 생성하지",
+        "확인할 수 없",
+        "찾을 수 없",
+        "없습니다.",  # generic
+    ]
+    return any(k in low for k in keywords)
+
+
+async def call_chat_model(question: str, hits: List[SearchHit], persona_prompt: str | None = None) -> str:
     """Call Azure OpenAI chat with RAG prompt."""
     context_parts = []
     for i, h in enumerate(hits, start=1):
@@ -49,11 +98,14 @@ async def call_chat_model(question: str, hits: List[SearchHit]) -> str:
         context_parts.append(f"[doc#{i} | {title}]\n{content}")
     context_text = "\n\n".join(context_parts) if context_parts else "No relevant documents were found for this user."
 
-    system_msg = (
+    base_system = (
         "You are an AI assistant that answers the user's questions based ONLY on the provided documents. "
         "If the documents do not contain enough information, say you are not sure. "
         "Answer in Korean, be concise but clear."
     )
+    system_msg = persona_prompt if persona_prompt else base_system
+    if persona_prompt:
+        system_msg += "\n\n(위 지침은 이 폴더 전용 페르소나로 설정되었습니다.)"
     user_msg = f"User question:\n{question}\n\nRelevant documents:\n{context_text}"
 
     if not settings.azure_openai_endpoint or not settings.azure_openai_api_key or not settings.azure_openai_chat_deployment:
@@ -105,19 +157,54 @@ async def call_chat_model(question: str, hits: List[SearchHit]) -> str:
 async def chat_with_rag(
     payload: ChatRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """RAG chat: embed query, vector search, call chat model."""
-    query_vec = await embed_query(payload.question)
+    search_result: VectorSearchResponse | None = None
+    answer = "죄송합니다. 답변을 생성하는 중 오류가 발생했습니다."
+    status_str = "ERROR"
+    persona_prompt: str | None = None
+    primary_document_id: str | None = None
 
-    search_result: VectorSearchResponse = await vector_search(
-        query_vector=query_vec,
-        user_id=current_user.id,
-        group_id=payload.group_id,
-        document_id=None,
-        top_k=payload.top_k,
-    )
+    try:
+        query_vec = await embed_query(payload.question)
 
-    answer = await call_chat_model(payload.question, search_result.hits)
+        search_result = await vector_search(
+            query_vector=query_vec,
+            user_id=current_user.id,
+            group_id=payload.group_id,
+            document_id=None,
+            top_k=payload.top_k,
+        )
+
+        if payload.group_id:
+            group = db.get(DocumentGroup, payload.group_id)
+            if not group or group.user_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+            persona_prompt = group.persona_prompt
+
+        if search_result.hits:
+            status_str = "SUCCESS"
+            primary_document_id = search_result.hits[0].document_id
+        else:
+            status_str = "NO_ANSWER"
+
+        answer = await call_chat_model(payload.question, search_result.hits, persona_prompt)
+        if status_str == "SUCCESS" and _looks_no_answer(answer):
+            status_str = "NO_ANSWER"
+    except HTTPException:
+        # FastAPI HTTPException 그대로 전달
+        raise
+    except Exception as e:
+        logger.exception("chat_with_rag: 검색/LLM 처리 중 예외 발생", exc_info=e)
+        answer = "죄송합니다. 답변을 생성하는 중 오류가 발생했습니다."
+        status_str = "ERROR"
+
+    try:
+        normalized = await normalize_question_semantic(payload.question)
+    except Exception as e:
+        logger.exception("chat_with_rag: normalize_question_semantic 예외 발생", exc_info=e)
+        normalized = None
 
     sources: List[ChatSource] = [
         ChatSource(
@@ -127,7 +214,60 @@ async def chat_with_rag(
             chunk_id=h.chunk_id,
             score=h.score,
         )
-        for h in search_result.hits
+        for h in (search_result.hits if search_result else [])
     ]
 
+    # QA 로그 저장 (best-effort)
+    try:
+        qa_log = QALog(
+            user_id=current_user.id,
+            document_id=primary_document_id,
+            link_id=None,
+            question=payload.question,
+            answer=answer,
+            status=status_str,
+            normalized_question=normalized,
+        )
+        db.add(qa_log)
+        db.commit()
+        # 키워드 저장 (best-effort)
+        if normalized:
+            keywords = extract_keywords_for_cloud(payload.question, normalized)
+            for kw in keywords:
+                db.add(QAKetword(qa_log_id=qa_log.id, keyword=kw))
+            db.commit()
+    except Exception as e:
+        logger.exception("chat_with_rag: qa_log 저장 중 예외 발생 - rollback 수행", exc_info=e)
+        try:
+            db.rollback()
+        except Exception as rollback_err:
+            logger.exception("chat_with_rag: rollback 실패", exc_info=rollback_err)
+
     return ChatResponse(question=payload.question, answer=answer, sources=sources)
+
+
+@router.get("/logs", response_model=List[ChatLogRead])
+def list_chat_logs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    logs = (
+        db.query(QALog)
+        .filter(QALog.user_id == current_user.id)
+        .filter(QALog.link_id.is_(None))
+        .order_by(QALog.created_at.asc())
+        .all()
+    )
+    return logs
+
+
+@router.delete("/logs", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chat_logs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    db.query(QALog).filter(
+        QALog.user_id == current_user.id,
+        QALog.link_id.is_(None),
+    ).delete()
+    db.commit()

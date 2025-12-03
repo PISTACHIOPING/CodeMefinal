@@ -68,18 +68,51 @@ export interface DocumentGroup {
   user_id: string;
   name: string;
   description?: string | null;
+  persona_prompt?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 // 3. Dashboard Data Transfer Objects (DTO)
-export interface DashboardStats {
-    totalChats: number;
-    dailyStats: { day: string; messageCount: number }[];
-    topKeywords: { keyword: string; count: number }[];
-    recentChats: QALog[];
-    failures: { questionKey: string; failCount: number }[];
-    documents: DocumentEntity[];
+export interface DashboardKeyword {
+  keyword: string;
+  count: number;
+}
+
+export interface DashboardRecentQuestion {
+  id: string;
+  question: string;
+  created_at: string | null;
+}
+
+export interface DashboardDocumentSummary {
+  id: string;
+  title: string;
+  original_file_name: string;
+  mime_type: string | null;
+  status: string;
+  created_at: string | null;
+  group_id: string | null;
+}
+
+export interface DashboardDailyCount {
+  date: string;
+  count: number;
+}
+
+export interface DashboardFailedQuestion {
+  normalized_question: string;
+  sample_question: string;
+  fail_count: number;
+  last_asked_at: string | null;
+}
+
+export interface DashboardOverview {
+  keywords: DashboardKeyword[];
+  recent_questions: DashboardRecentQuestion[];
+  recent_documents: DashboardDocumentSummary[];
+  daily_counts: DashboardDailyCount[];
+  failed_questions: DashboardFailedQuestion[];
 }
 
 export interface User {
@@ -116,11 +149,24 @@ export interface Contact {
 
 export enum PageRoute {
   HOME = '/',
-  CHAT = '/chat',
+  AGENT = '/agent',
+  CHAT = '/agent', // backward compat
+  SHARE_CHAT = '/share-chat',
   DASHBOARD = '/dashboard',
   UPLOAD = '/upload',
   PRICING = '/pricing',
   SETTINGS = '/settings'
+}
+
+export interface Link {
+  id: string;
+  user_id: string;
+  document_id?: string | null;
+  group_id?: string | null;
+  title?: string | null;
+  is_active: boolean;
+  expires_at?: string | null;
+  created_at?: string;
 }
 
 declare global {
