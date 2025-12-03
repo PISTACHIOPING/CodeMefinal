@@ -24,11 +24,9 @@ def get_dashboard_overview(
 
     owner_logs_subq = (
         db.query(QALog)
-        .outerjoin(Document, QALog.document_id == Document.id)
         .outerjoin(Link, QALog.link_id == Link.id)
-        .filter(
-            (Document.user_id == owner_id) | (Link.user_id == owner_id)
-        )
+        .filter(QALog.link_id.isnot(None))
+        .filter(Link.user_id == owner_id)
         .subquery()
     )
 

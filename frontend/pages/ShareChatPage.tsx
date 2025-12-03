@@ -21,6 +21,11 @@ const ShareChatPage: React.FC = () => {
       try {
         const res = await documentService.listGroups();
         setGroups(res);
+        // 기본적으로 첫 번째 그룹을 선택해 공유/챗봇이 동작하도록 한다.
+        if (res.length > 0) {
+          setSelectedGroupId(res[0].id);
+          setMessages([]);
+        }
       } catch (err: any) {
         setError(err.message || '폴더 목록을 불러오지 못했습니다.');
       }
@@ -106,8 +111,13 @@ const ShareChatPage: React.FC = () => {
             <div className="flex flex-col">
               <h2 className="text-lg font-semibold text-gray-900">공유용 챗봇</h2>
               <span className="text-xs text-gray-500">
-                폴더를 선택하면 해당 폴더 문서만 기반으로 답변합니다.
+                선택된 폴더 문서만 기반으로 답변합니다.
               </span>
+              {selectedGroupId && (
+                <span className="text-[11px] text-gray-500 mt-1">
+                  현재 폴더: {groups.find(g => g.id === selectedGroupId)?.name || '알 수 없음'}
+                </span>
+              )}
               {shareUrl && (
                 <span className="text-xs text-purple-600 mt-1 break-all">
                   공유 링크: {shareUrl}
@@ -129,20 +139,6 @@ const ShareChatPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 mb-4 overflow-x-auto text-sm">
-            <button
-              onClick={() => {
-                setSelectedGroupId(null);
-                setMessages([]);
-              }}
-              className={`inline-flex items-center gap-1 px-3 py-1 rounded-full border text-xs ${
-                selectedGroupId === null
-                  ? 'bg-purple-50 border-purple-300 text-purple-700'
-                  : 'bg-gray-50 border-gray-200 text-gray-600'
-              }`}
-            >
-              <Icons.FolderOpen size={14} />
-              전체 문서
-            </button>
             {groups.map(group => (
               <button
                 key={group.id}
